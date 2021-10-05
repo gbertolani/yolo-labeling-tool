@@ -8,9 +8,10 @@ from glob import glob
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QPushButton
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QFileDialog, QLabel
-from PyQt5.QtWidgets import QDesktopWidget, QMessageBox, QCheckBox
+from PyQt5.QtWidgets import QDesktopWidget, QMessageBox
 from PyQt5.QtGui import QPixmap, QPainter, QPen, QFont
 from PyQt5.QtCore import QPoint
+import csv
 
 
 class MyApp(QMainWindow):
@@ -48,6 +49,76 @@ class MyApp(QMainWindow):
 
     def fitSize(self):
         self.setFixedSize(self.layout().sizeHint())
+
+
+class SampleObject(object):
+
+    def __init__(self, image_path, categories):
+        if not isinstance(categories, dict):
+            raise Exception("Categories must be dictionary")
+        if not image_path:
+            raise Exception("Image path is required")
+        self.idx = None
+        self.image_path = image_path
+        self._categories = categories
+        self._visible = True
+
+    def set_invisible(self):
+        self._visible = False
+        return True
+
+    def set_visible(self):
+        self._visible = True
+        return True
+
+    def set_category(self, idx):
+        if not self._categories.get(idx, False):
+            raise Exception("Category not found for index %s" % self.idx)
+        self.category_name = self._categories[idx]
+        self.idx = idx
+        return True
+
+    def add_yolo_cfg(self, pos_cfg, categories={}, ratio=(1, 1)):
+        self.idx = pos_cfg[0]
+        self.set_category(self.idx)
+        if len(ratio) != 2:
+            raise Exception("Bad Ratio. Must be (float, float)")
+        self.center_x = float(pos_cfg[1])
+        self.center_y = float(pos_cfg[2])
+        self.width = float(pos_cfg[3])
+        self.height = float(pos_cfg[4])
+        self._W = ratio[0]
+        self._H = ratio[1]
+        self.lx = (self.center_x - (self.width / 2)) * self._W
+        self.rx = (self.center_x + (self.width / 2)) * self._W
+        self.ly = (self.center_y - (self.height / 2)) * self._H
+        self.ry = (self.center_y + (self.height / 2)) * self._H
+        return True
+
+    def get_box_format(self):
+        if not self.idx:
+            raise Exception("SampleObject not initialized with cfg")
+        # box : (lx, ly, rx, ry, idx)
+        box = (
+            self.lx, self.ly,
+            self.rx, self.ry,
+            self.idx,
+        )
+        return box
+
+    def get_yolo_format(self):
+        if not self.idx:
+            raise Exception("SampleObject not initialized with cfg")
+        # yolo (obj_cfg) : (idx center_x_ratio, center_y_ratio,
+        #         width_ratio, height_ratio)
+        yolo_format = [
+            self.idx,
+            (self.lx + self.rx)/2/self._W,
+            (self.ly + self.ry)/2/self._H,
+            (self.rx - self.lx)/self._W,
+            (self.ry - self.ly)/self._H
+        ]
+        return yolo_format
 
 
 class ImageWidget(QWidget):
@@ -169,6 +240,44 @@ class ImageWidget(QWidget):
         self.setFixedSize(self.W, self.H)
         self.pixmapOriginal = QPixmap.copy(self.pixmap)
 
+    def _getObjCfg(self, obj_data):
+        # box : (lx, ly, rx, ry, idx)
+        # yolo (obj_cfg) : (idx center_x_ratio, center_y_ratio,
+        #         width_ratio, height_ratio)
+        W, H = self.getRatio()
+        center_x = float(obj_data[1])
+        center_y = float(obj_data[2])
+        width = float(obj_data[3])
+        height = float(obj_data[4])
+        vals = {
+            'idx': int(obj_data[0]),
+            'center_x': center_x,
+            'center_y': center_y,
+            'width': width,
+            'height': height,
+            'lx': (center_x - (width / 2)) * W,
+            'rx': (center_x + (width / 2)) * W,
+            'ly': (center_y - (height / 2)) * H,
+            'ry': (center_y + (height / 2)) * H,
+        }
+        return vals
+
+    def setObjData(self, obj_datas):
+        self.resetResult()
+        for obj_data in obj_datas:
+            # box : (lx, ly, rx, ry, idx)
+            obj_vals = self._getObjCfg(obj_data)
+            box = (
+                obj_vals['lx'],
+                obj_vals['ly'],
+                obj_vals['rx'],
+                obj_vals['ry'],
+                obj_vals['idx'],
+            )
+            self.results.append(box)
+        self.pixmap = self.drawResultBox()
+        self.update()
+
     def cancelLast(self):
         if self.results:
             self.results.pop()  # pop last
@@ -208,22 +317,24 @@ class MainWidget(QWidget):
             for i in range(1, 10)
             if config_dict['key_'+str(i)]
         ]
-        self.crop_mode = False
-        self.save_directory = None
-
+        self.image_directory = None
+        self.train_path = None
+        self.obj_names_path = None
         self.initUI()
 
     def initUI(self):
         # UI elements
-        inputPathButton = QPushButton('Input Path', self)
-        savePathButton = QPushButton('Save Path', self)
-        savePathButton.setEnabled(False)
+        imagePathButton = QPushButton('Image Path (Folder)', self)
+        trainPathButton = QPushButton('train.txt Path', self)
+        objNamesPathButton = QPushButton('obj.names File Path', self)
+        saveButton = QPushButton('Save', self)
+
         okButton = QPushButton('Next', self)
         cancelButton = QPushButton('Cancel', self)
-        cropModeCheckBox = QCheckBox("Crop Mode", self)
-        inputPathLabel = QLabel('Input Path not selected', self)
-        self.savePathLabel = QLabel('Save Path not selected', self)
-        self.savePathLabel.setEnabled(False)
+        imagePathLabel = QLabel('Image Path not selected', self)
+        trainPathLabel = QLabel('train.txt Path not selected', self)
+        objNamesPathLabel = QLabel('obj.names Path not selected', self)
+        saveLabel = QLabel('.', self)
 
         self.label_img = ImageWidget(self.parent, self.key_config)
 
@@ -231,32 +342,39 @@ class MainWidget(QWidget):
         okButton.clicked.connect(self.setNextImage)
         okButton.setEnabled(False)
         cancelButton.clicked.connect(self.label_img.cancelLast)
-        cropModeCheckBox.stateChanged.connect(
-            lambda state: self.cropMode(state, savePathButton))
-        inputPathButton.clicked.connect(
-            lambda: self.registerInputPath(
-                inputPathButton, inputPathLabel, okButton)
+        imagePathButton.clicked.connect(
+            lambda: self.registerImagePath(
+                imagePathButton, imagePathLabel, okButton)
         )
-        savePathButton.clicked.connect(
+        trainPathButton.clicked.connect(
+            lambda: self.registerTrainPath(trainPathButton, trainPathLabel)
+        )
+        objNamesPathButton.clicked.connect(
+            lambda: self.registerObjNamesPath(trainPathButton, trainPathLabel)
+        )
+        saveButton.clicked.connect(
             lambda: self.registerSavePath(
-                savePathButton, self.savePathLabel)
+                saveButton, self.savePathLabel)
         )
 
+        # Config Button
         hbox = QHBoxLayout()
 
         vbox = QVBoxLayout()
-        vbox.addWidget(inputPathButton)
-        vbox.addWidget(savePathButton)
-
+        vbox.addWidget(imagePathButton)
+        vbox.addWidget(trainPathButton)
+        vbox.addWidget(objNamesPathButton)
+        vbox.addWidget(saveButton)
         hbox.addLayout(vbox)
 
         vbox = QVBoxLayout()
-        vbox.addWidget(inputPathLabel)
-        vbox.addWidget(self.savePathLabel)
-
+        vbox.addWidget(imagePathLabel)
+        vbox.addWidget(trainPathLabel)
+        vbox.addWidget(objNamesPathLabel)
+        vbox.addWidget(saveLabel)
         hbox.addLayout(vbox)
+
         hbox.addStretch(3)
-        hbox.addWidget(cropModeCheckBox)
         hbox.addStretch(1)
         hbox.addWidget(okButton)
         hbox.addWidget(cancelButton)
@@ -268,8 +386,8 @@ class MainWidget(QWidget):
         self.setLayout(vbox)
 
     def setNextImage(self, img=None):
-        if self.savePathLabel.text() == 'Results' and self.crop_mode:
-            os.makedirs(self.save_directory, exist_ok=True)
+        # if self.savePathLabel.text() == 'Results' and self.crop_mode:
+        #     os.makedirs(self.save_directory, exist_ok=True)
 
         if not img:
             res = self.label_img.getResult()
@@ -281,8 +399,10 @@ class MainWidget(QWidget):
             self.label_img.resetResult()
             try:
                 self.currentImg = self.imgList.pop(0)
+                self.currentCfg = self.imgListCfg.pop(0)
             except Exception:
                 self.currentImg = 'end.png'
+                self.currentCfg = ''
         else:
             self.label_img.resetResult()
 
@@ -308,6 +428,9 @@ class MainWidget(QWidget):
         self.label_img.setPixmap(self.currentImg)
         self.label_img.update()
         self.parent.fitSize()
+        with open(self.currentCfg, 'r') as f:
+            cfg=csv.reader(f, delimiter=' ', dialect='skip_space')
+            self.label_img.setObjData(cfg)
 
     def writeResults(self, res):
         if self.parent.fileName.text() != 'Ready':
@@ -354,8 +477,8 @@ class MainWidget(QWidget):
             print("Output Path not selected")
             self.save_directory = None
 
-    def registerInputPath(self, inputPathButton, inputPathLabel, okButton):
-        inputPathButton.toggle()
+    def registerImagePath(self, imagePathButton, imagePathLabel, okButton):
+        imagePathButton.toggle()
         directory = str(
             QFileDialog.getExistingDirectory(self, "Select Input Directory")
         )
@@ -364,26 +487,63 @@ class MainWidget(QWidget):
             print("Input Path not selected")
             return -1
 
-        types = ('*.jpg', '*.png')
+        types = ('*.jpg', '*.png', '*.jpeg')
         self.imgList = []
         for t in types:
             self.imgList.extend(glob(directory+'/'+t))
         self.total_imgs = len(self.imgList)
 
-        to_skip = []
+        self.imgListCfg = []
         for imgPath in self.imgList:
-            if os.path.exists(imgPath[:-4] + '.txt'):
-                to_skip.append(imgPath)
-        for skip in to_skip:
-            self.imgList.remove(skip)
-
-        inputPathLabel.setText(basename+'/')
+            fsize = 4
+            if '.' not in imgPath[:-5]:
+                fsize = 5
+            if os.path.exists(imgPath[:-fsize] + '.txt'):
+                self.imgListCfg.append(imgPath[:-fsize] + '.txt')
+            else:
+                print("Txt not found: %s" % (imgPath[:-fsize] + '.txt'))
+                self.imgList.remove(imgPath)
+        imagePathLabel.setText(basename+'/')
         okButton.setEnabled(True)
 
-        if self.save_directory is None or \
-                self.savePathLabel.text() == 'Results':
-            self.savePathLabel.setText('Results')
-            self.save_directory = os.path.join(directory, 'Results')
+    def registerTrainPath(self, trainPathButton, trainPathLabel):
+        trainPathButton.toggle()
+        file_path = QFileDialog.getOpenFileName(
+            self, "Select Train file", filter="*.txt")[0]
+        file_name = os.path.basename(file_path)
+        if not file_name:
+            print("Train file Path not selected")
+            return -1
+
+        trainPathLabel.setText(file_name)
+        self.train_path = file_name
+
+        # Read Data
+        with open(file_path, 'r') as f:
+            paths = f.readlines()
+            self.sample_paths = [
+                x.replace('\n', '')
+                for x in paths
+            ]
+
+    def registerObjNamesPath(self, objNamesPathButton, objNamesPathLabel):
+        objNamesPathButton.toggle()
+        file_path = QFileDialog.getOpenFileName(
+            self, "Select Train file", filter="*.names")[0]
+        file_name = os.path.basename(file_path)
+        if not file_name:
+            print("Obj Names file Path not selected")
+            return -1
+        objNamesPathLabel.setText(file_name)
+        self.obj_names_path = file_path
+
+        # Read Objects names
+        with open(file_path, 'r') as f:
+            obj_names = f.readlines()
+            self.key_config = [
+                x.replace('\n', '')
+                for x in obj_names
+            ]
 
     def getConfigFromJson(self, json_file):
         # parse the configurations from the config json file provided
@@ -397,14 +557,6 @@ class MainWidget(QWidget):
                 print("INVALID JSON file format.. "
                       "Please provide a good json file")
                 exit(-1)
-
-    def cropMode(self, state, savePathButton):
-        if state == Qt.Checked:
-            self.crop_mode = True
-            savePathButton.setEnabled(True)
-        else:
-            self.crop_mode = False
-            savePathButton.setEnabled(False)
 
     def keyPressEvent(self, e):
         config_len = len(self.key_config)
@@ -428,6 +580,7 @@ class MainWidget(QWidget):
 
 
 if __name__ == '__main__':
+    csv.register_dialect('skip_space', skipinitialspace=True)
     app = QApplication(sys.argv)
     ex = MyApp()
     sys.exit(app.exec_())

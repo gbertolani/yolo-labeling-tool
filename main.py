@@ -9,7 +9,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QPushButton
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QFileDialog, QLabel
 from PyQt5.QtWidgets import QDesktopWidget, QMessageBox
-from PyQt5.QtGui import QPixmap, QPainter, QPen, QFont
+from PyQt5.QtGui import QPixmap, QPainter, QPen, QFont, QColor
 from PyQt5.QtCore import QPoint
 import csv
 
@@ -20,9 +20,9 @@ class MyApp(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        mainWidget = MainWidget(self)
+        self.mainWidget = MainWidget(self)
 
-        self.setCentralWidget(mainWidget)
+        self.setCentralWidget(self.mainWidget)
         statusbar = self.statusBar()
         self.setStatusBar(statusbar)
         self.fileName = QLabel('Ready')
@@ -44,59 +44,112 @@ class MyApp(QMainWindow):
         statusbar.addWidget(widget, 1)
 
         self.setGeometry(50, 50, 1200, 800)
-        self.setWindowTitle('im2trainData')
+        self.setWindowTitle('pyYoloMark')
         self.show()
 
     def fitSize(self):
         self.setFixedSize(self.layout().sizeHint())
 
 
+class SampleGrouper(object):
+
+    """Group samples Object for image"""
+
+    def __init__(self, categories):
+        self.categories = {}
+        self.categories_color = {}
+        self.samples = []
+        self.new_samples = []
+        self.line_number = None
+
+    def addSample(self, sample):
+        if sample.idx is None:
+            raise Exception(
+                "Sample must be idx before appending to Gruper"
+            )
+        self.samples.append(sample)
+        if sample.isNew():
+            self.new_samples.append(sample)
+        if sample.idx not in self.categories_color:
+            self.categories_color[sample.idx] = list(
+                np.random.choice(range(256), size=3)
+            ) + [255]
+
+    def getCategories(self):
+        return {
+            i: name
+            for i, name in self.categories.items()
+        }
+
+    def getSamplesToRender(self):
+        return filter(lambda x: x.isVisible(), self.samples)
+
+    def getSamplesToRenderGrouped(self):
+        groups = {}
+        for sample in self.samples:
+            if not sample.isVisible():
+                continue
+            if sample.idx not in groups:
+                groups[sample.idx] = []
+            groups[sample.idx].append(sample)
+        return groups
+
+    def needToSave(self):
+        return bool(new_samples)
+
 class SampleObject(object):
 
-    def __init__(self, image_path, categories):
-        if not isinstance(categories, dict):
-            raise Exception("Categories must be dictionary")
-        if not image_path:
-            raise Exception("Image path is required")
+    def __init__(self, ratio=(1, 1)):
+        if len(ratio) != 2:
+            raise Exception("Bad Ratio. Must be (float, float)")
         self.idx = None
-        self.image_path = image_path
-        self._categories = categories
+        self._W = ratio[0]
+        self._H = ratio[1]
         self._visible = True
+        self._new = False
+        self._changed = False
 
-    def set_invisible(self):
+    def isNew(self):
+        return self._new
+
+    def isVisible(self):
+        return self._visible
+
+    def withChanges(self):
+        return self._changed
+
+    def setInvisible(self):
         self._visible = False
         return True
 
-    def set_visible(self):
+    def setVisible(self):
         self._visible = True
         return True
 
-    def set_category(self, idx):
-        if not self._categories.get(idx, False):
-            raise Exception("Category not found for index %s" % self.idx)
-        self.category_name = self._categories[idx]
+    def setCategory(self, idx, category_name):
+        self.category_name = category_name
         self.idx = idx
+        self._changed = True
         return True
 
-    def add_yolo_cfg(self, pos_cfg, categories={}, ratio=(1, 1)):
-        self.idx = pos_cfg[0]
-        self.set_category(self.idx)
-        if len(ratio) != 2:
-            raise Exception("Bad Ratio. Must be (float, float)")
+    def addYoloCfg(self, line_number, pos_cfg, categories={}):
+        self.idx = int(pos_cfg[0])
+        if not categories.get(self.idx, False):
+            raise Exception("Category not found for index %s" % self.idx)
+        self.line_number = line_number
+        self.category_name = categories[self.idx]
         self.center_x = float(pos_cfg[1])
         self.center_y = float(pos_cfg[2])
         self.width = float(pos_cfg[3])
         self.height = float(pos_cfg[4])
-        self._W = ratio[0]
-        self._H = ratio[1]
         self.lx = (self.center_x - (self.width / 2)) * self._W
         self.rx = (self.center_x + (self.width / 2)) * self._W
         self.ly = (self.center_y - (self.height / 2)) * self._H
         self.ry = (self.center_y + (self.height / 2)) * self._H
         return True
 
-    def get_box_format(self):
-        if not self.idx:
+    def getBoxFormat(self):
+        if self.idx is None:
             raise Exception("SampleObject not initialized with cfg")
         # box : (lx, ly, rx, ry, idx)
         box = (
@@ -106,8 +159,8 @@ class SampleObject(object):
         )
         return box
 
-    def get_yolo_format(self):
-        if not self.idx:
+    def getYoloFormat(self):
+        if self.idx is None:
             raise Exception("SampleObject not initialized with cfg")
         # yolo (obj_cfg) : (idx center_x_ratio, center_y_ratio,
         #         width_ratio, height_ratio)
@@ -119,6 +172,17 @@ class SampleObject(object):
             (self.ry - self.ly)/self._H
         ]
         return yolo_format
+
+    def addBox(self, lx, ly, rx, ry, idx, category_name):
+        self._new = True
+        self.idx = idx
+        self.category_name = category_name
+        self.lx = lx
+        self.ly = ly
+        self.rx = rx
+        self.ry = ry
+        self.idx = idx
+        return True
 
 
 class ImageWidget(QWidget):
@@ -149,57 +213,57 @@ class ImageWidget(QWidget):
         painter = QPainter(self)
         painter.drawPixmap(self.rect(), self.pixmap)
 
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.prev_pixmap = self.pixmap
-            self.drawing = True
-            self.lastPoint = event.pos()
-        elif event.button() == Qt.RightButton:
-            x, y = event.pos().x(), event.pos().y()
-            for i, box in enumerate(self.results):
-                lx, ly, rx, ry = box[:4]
-                if lx <= x <= rx and ly <= y <= ry:
-                    self.results.pop(i)
-                    self.pixmap = self.drawResultBox()
-                    self.update()
-                    break
-
-    def mouseMoveEvent(self, event):
-        self.parent.cursorPos.setText(
-            '({}, {})'.format(event.pos().x(), event.pos().y()))
-        if event.buttons() and Qt.LeftButton and self.drawing:
-            self.pixmap = QPixmap.copy(self.prev_pixmap)
-            painter = QPainter(self.pixmap)
-            painter.setPen(QPen(Qt.red, 2, Qt.SolidLine))
-            p1_x, p1_y = self.lastPoint.x(), self.lastPoint.y()
-            p2_x, p2_y = event.pos().x(), event.pos().y()
-            painter.drawRect(min(p1_x, p2_x), min(p1_y, p2_y),
-                             abs(p1_x-p2_x), abs(p1_y-p2_y))
-            self.update()
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            p1_x, p1_y = self.lastPoint.x(), self.lastPoint.y()
-            p2_x, p2_y = event.pos().x(), event.pos().y()
-            lx, ly = min(p1_x, p2_x), min(p1_y, p2_y)
-            w, h = abs(p1_x-p2_x), abs(p1_y-p2_y)
-            if (p1_x, p1_y) != (p2_x, p2_y):
-                if self.results and (len(self.results[-1]) == 4) \
-                        and self.parent.autoLabel.text() == 'Manual Label':
-                    self.showPopupOk('warning messege',
-                                     'Please mark the box you drew.')
-                    self.pixmap = self.drawResultBox()
-                    self.update()
-                elif self.parent.autoLabel.text() == 'Auto Label':
-                    self.results.append([lx, ly, lx+w, ly+h, self.last_idx])
-                    for i, result in enumerate(self.results):
-                        if len(result) == 4:  # fill empty labels
-                            self.results[i].append(self.last_idx)
-                    self.pixmap = self.drawResultBox()
-                    self.update()
-                else:
-                    self.results.append([lx, ly, lx+w, ly+h])
-                self.drawing = False
+    # def mousePressEvent(self, event):
+    #     if event.button() == Qt.LeftButton:
+    #         self.prev_pixmap = self.pixmap
+    #         self.drawing = True
+    #         self.lastPoint = event.pos()
+    #     elif event.button() == Qt.RightButton:
+    #         x, y = event.pos().x(), event.pos().y()
+    #         for i, box in enumerate(self.results):
+    #             lx, ly, rx, ry = box[:4]
+    #             if lx <= x <= rx and ly <= y <= ry:
+    #                 self.results.pop(i)
+    #                 self.pixmap = self.drawResultBox()
+    #                 self.update()
+    #                 break
+    #
+    # def mouseMoveEvent(self, event):
+    #     self.parent.cursorPos.setText(
+    #         '({}, {})'.format(event.pos().x(), event.pos().y()))
+    #     if event.buttons() and Qt.LeftButton and self.drawing:
+    #         self.pixmap = QPixmap.copy(self.prev_pixmap)
+    #         painter = QPainter(self.pixmap)
+    #         painter.setPen(QPen(Qt.red, 2, Qt.SolidLine))
+    #         p1_x, p1_y = self.lastPoint.x(), self.lastPoint.y()
+    #         p2_x, p2_y = event.pos().x(), event.pos().y()
+    #         painter.drawRect(min(p1_x, p2_x), min(p1_y, p2_y),
+    #                          abs(p1_x-p2_x), abs(p1_y-p2_y))
+    #         self.update()
+    #
+    # def mouseReleaseEvent(self, event):
+    #     if event.button() == Qt.LeftButton:
+    #         p1_x, p1_y = self.lastPoint.x(), self.lastPoint.y()
+    #         p2_x, p2_y = event.pos().x(), event.pos().y()
+    #         lx, ly = min(p1_x, p2_x), min(p1_y, p2_y)
+    #         w, h = abs(p1_x-p2_x), abs(p1_y-p2_y)
+    #         if (p1_x, p1_y) != (p2_x, p2_y):
+    #             if self.results and (len(self.results[-1]) == 4) \
+    #                     and self.parent.autoLabel.text() == 'Manual Label':
+    #                 self.showPopupOk('warning messege',
+    #                                  'Please mark the box you drew.')
+    #                 self.pixmap = self.drawResultBox()
+    #                 self.update()
+    #             elif self.parent.autoLabel.text() == 'Auto Label':
+    #                 self.results.append([lx, ly, lx+w, ly+h, self.last_idx])
+    #                 for i, result in enumerate(self.results):
+    #                     if len(result) == 4:  # fill empty labels
+    #                         self.results[i].append(self.last_idx)
+    #                 self.pixmap = self.drawResultBox()
+    #                 self.update()
+    #             else:
+    #                 self.results.append([lx, ly, lx+w, ly+h])
+    #             self.drawing = False
 
     def showPopupOk(self, title: str, content: str):
         msg = QMessageBox()
@@ -210,19 +274,40 @@ class ImageWidget(QWidget):
         if result == QMessageBox.Ok:
             msg.close()
 
-    def drawResultBox(self):
+    # def drawResultBox(self):
+    #     res = QPixmap.copy(self.pixmapOriginal)
+    #     painter = QPainter(res)
+    #     font = QFont('mono', 15, 1)
+    #     painter.setFont(font)
+    #     painter.setPen(QPen(Qt.red, 2, Qt.SolidLine))
+    #     for box in self.results:
+    #         lx, ly, rx, ry = box[:4]
+    #         painter.drawRect(lx, ly, rx-lx, ry-ly)
+    #         if len(box) == 5:
+    #             painter.setPen(QPen(Qt.blue, 2, Qt.SolidLine))
+    #             painter.drawText(lx, ly+15, self.key_config[box[-1]])
+    #             painter.setPen(QPen(Qt.red, 2, Qt.SolidLine))
+    #     return res
+
+    def drawSamplesBox(self):
         res = QPixmap.copy(self.pixmapOriginal)
         painter = QPainter(res)
-        font = QFont('mono', 15, 1)
+        font = QFont('mono', 10, 1)
         painter.setFont(font)
-        painter.setPen(QPen(Qt.red, 2, Qt.SolidLine))
-        for box in self.results:
-            lx, ly, rx, ry = box[:4]
-            painter.drawRect(lx, ly, rx-lx, ry-ly)
-            if len(box) == 5:
+        # Dibujamos por grupos
+        groups = self.grouper.getSamplesToRenderGrouped()
+        for gindex, samples in groups.items():
+            gcolor = self.grouper.categories_color[gindex]
+            qcolor = QColor(*gcolor)
+            for sample in samples:
+                painter.setPen(QPen(qcolor, 2, Qt.SolidLine))
+                painter.drawRect(sample.lx, sample.ly,
+                                 sample.rx - sample.lx,
+                                 sample.ry - sample.ly)
+                # Draw text
                 painter.setPen(QPen(Qt.blue, 2, Qt.SolidLine))
-                painter.drawText(lx, ly+15, self.key_config[box[-1]])
-                painter.setPen(QPen(Qt.red, 2, Qt.SolidLine))
+                painter.drawText(sample.lx, sample.ly+15,
+                                 sample.category_name)
         return res
 
     def setPixmap(self, image_fn):
@@ -263,19 +348,20 @@ class ImageWidget(QWidget):
         return vals
 
     def setObjData(self, obj_datas):
+        """
+        Read image txt and draw created boxes
+        """
+        # Create new grouper
+        categories = self.parent.mainWidget.categories
+        self.grouper = SampleGrouper(categories)
         self.resetResult()
-        for obj_data in obj_datas:
-            # box : (lx, ly, rx, ry, idx)
-            obj_vals = self._getObjCfg(obj_data)
-            box = (
-                obj_vals['lx'],
-                obj_vals['ly'],
-                obj_vals['rx'],
-                obj_vals['ry'],
-                obj_vals['idx'],
-            )
+        for line_number, obj_data in enumerate(obj_datas):
+            sample = SampleObject(ratio=self.getRatio())
+            sample.addYoloCfg(line_number, obj_data, categories=categories)
+            self.grouper.addSample(sample)
+            box = sample.getBoxFormat()
             self.results.append(box)
-        self.pixmap = self.drawResultBox()
+        self.pixmap = self.drawSamplesBox()
         self.update()
 
     def cancelLast(self):
@@ -320,6 +406,7 @@ class MainWidget(QWidget):
         self.image_directory = None
         self.train_path = None
         self.obj_names_path = None
+        self.categories = {}
         self.initUI()
 
     def initUI(self):
@@ -350,7 +437,8 @@ class MainWidget(QWidget):
             lambda: self.registerTrainPath(trainPathButton, trainPathLabel)
         )
         objNamesPathButton.clicked.connect(
-            lambda: self.registerObjNamesPath(trainPathButton, trainPathLabel)
+            lambda: self.registerObjNamesPath(
+                trainPathButton, objNamesPathLabel, okButton)
         )
         saveButton.clicked.connect(
             lambda: self.registerSavePath(
@@ -429,8 +517,15 @@ class MainWidget(QWidget):
         self.label_img.update()
         self.parent.fitSize()
         with open(self.currentCfg, 'r') as f:
-            cfg=csv.reader(f, delimiter=' ', dialect='skip_space')
+            cfg = csv.reader(f, delimiter=' ', dialect='skip_space')
             self.label_img.setObjData(cfg)
+
+    def enableOkButton(self, okButton):
+        if self.image_directory and self.obj_names_path:
+            okButton.setEnabled(True)
+        else:
+            okButton.setEnabled(False)
+        return True
 
     def writeResults(self, res):
         if self.parent.fileName.text() != 'Ready':
@@ -445,25 +540,25 @@ class MainWidget(QWidget):
                                (rx-lx)/W, (ry-ly)/H]
                 with open(self.currentImg[:-4]+'.txt', 'a', encoding='utf8') as resultFile:
                     resultFile.write(' '.join([str(x) for x in yolo_format]) + '\n')
-                if self.crop_mode:
-                    img = cv2.imread(self.currentImg)
-                    if img is None:
-                        n = np.fromfile(self.currentImg, np.uint8)
-                        img = cv2.imdecode(n, cv2.IMREAD_COLOR)
-                    oh, ow = img.shape[:2]
-                    w, h = round(yolo_format[3]*ow), round(yolo_format[4]*oh)
-                    x, y = round(yolo_format[1]*ow - w/2), round(yolo_format[2]*oh - h/2)
-                    crop_img = img[y:y+h, x:x+w]
-                    basename = os.path.basename(self.currentImg)
-                    filename = basename[:-4]+'-{}-{}.jpg'.format(self.key_config[idx], i)
-
-                    # Korean dir support
-                    crop_img = cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB)
-                    crop_img = Image.fromarray(crop_img)
-                    crop_img.save(os.path.join(
-                        self.save_directory, filename),
-                        dpi=(300, 300)
-                    )
+                # if self.crop_mode:
+                #     img = cv2.imread(self.currentImg)
+                #     if img is None:
+                #         n = np.fromfile(self.currentImg, np.uint8)
+                #         img = cv2.imdecode(n, cv2.IMREAD_COLOR)
+                #     oh, ow = img.shape[:2]
+                #     w, h = round(yolo_format[3]*ow), round(yolo_format[4]*oh)
+                #     x, y = round(yolo_format[1]*ow - w/2), round(yolo_format[2]*oh - h/2)
+                #     crop_img = img[y:y+h, x:x+w]
+                #     basename = os.path.basename(self.currentImg)
+                #     filename = basename[:-4]+'-{}-{}.jpg'.format(self.key_config[idx], i)
+                #
+                #     # Korean dir support
+                #     crop_img = cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB)
+                #     crop_img = Image.fromarray(crop_img)
+                #     crop_img.save(os.path.join(
+                #         self.save_directory, filename),
+                #         dpi=(300, 300)
+                #     )
 
     def registerSavePath(self, savePathButton, label):
         savePathButton.toggle()
@@ -486,6 +581,7 @@ class MainWidget(QWidget):
         if not basename:
             print("Input Path not selected")
             return -1
+        self.image_directory = basename
 
         types = ('*.jpg', '*.png', '*.jpeg')
         self.imgList = []
@@ -504,7 +600,7 @@ class MainWidget(QWidget):
                 print("Txt not found: %s" % (imgPath[:-fsize] + '.txt'))
                 self.imgList.remove(imgPath)
         imagePathLabel.setText(basename+'/')
-        okButton.setEnabled(True)
+        self.enableOkButton(okButton)
 
     def registerTrainPath(self, trainPathButton, trainPathLabel):
         trainPathButton.toggle()
@@ -525,8 +621,12 @@ class MainWidget(QWidget):
                 x.replace('\n', '')
                 for x in paths
             ]
+        return
 
-    def registerObjNamesPath(self, objNamesPathButton, objNamesPathLabel):
+    def registerObjNamesPath(self, objNamesPathButton, objNamesPathLabel, okButton):
+        """
+        Read object.names and save categories
+        """
         objNamesPathButton.toggle()
         file_path = QFileDialog.getOpenFileName(
             self, "Select Train file", filter="*.names")[0]
@@ -540,10 +640,16 @@ class MainWidget(QWidget):
         # Read Objects names
         with open(file_path, 'r') as f:
             obj_names = f.readlines()
+            self.categories = {
+                i: name.replace('\n', '')
+                for i, name in enumerate(obj_names)
+            }
             self.key_config = [
                 x.replace('\n', '')
                 for x in obj_names
             ]
+        self.enableOkButton(okButton)
+        return
 
     def getConfigFromJson(self, json_file):
         # parse the configurations from the config json file provided

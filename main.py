@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QFileDialog, QLabel
 from PyQt5.QtWidgets import QDesktopWidget, QMessageBox
 from PyQt5.QtGui import QPixmap, QPainter, QPen, QFont, QColor
 from PyQt5.QtCore import QPoint
+from sample_view import GroupModel, GroupView
 import csv
 
 
@@ -56,7 +57,7 @@ class SampleGrouper(object):
     """Group samples Object for image"""
 
     def __init__(self, categories):
-        self.categories = {}
+        self.categories = categories
         self.categories_color = {}
         self.samples = []
         self.new_samples = []
@@ -89,6 +90,14 @@ class SampleGrouper(object):
         for sample in self.samples:
             if not sample.isVisible():
                 continue
+            if sample.idx not in groups:
+                groups[sample.idx] = []
+            groups[sample.idx].append(sample)
+        return groups
+
+    def getSamplesGrouped(self):
+        groups = {}
+        for sample in self.samples:
             if sample.idx not in groups:
                 groups[sample.idx] = []
             groups[sample.idx].append(sample)
@@ -198,7 +207,7 @@ class ImageWidget(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.pixmap = QPixmap('start.png')
+        self.pixmap = QPixmap('./resources/background/start.png')
         self.label_img = QLabel()
         self.label_img.setObjectName("image")
         self.pixmapOriginal = QPixmap.copy(self.pixmap)
@@ -361,6 +370,7 @@ class ImageWidget(QWidget):
             self.grouper.addSample(sample)
             box = sample.getBoxFormat()
             self.results.append(box)
+        self.parent.mainWidget.refreshTreeView()
         self.pixmap = self.drawSamplesBox()
         self.update()
 
@@ -408,6 +418,16 @@ class MainWidget(QWidget):
         self.obj_names_path = None
         self.categories = {}
         self.initUI()
+
+    def refreshTreeView(self):
+        render = self.label_img
+        samples_grouped = render.grouper.getSamplesGrouped()
+        for idx, samples in samples_grouped.items():
+            group_name = render.grouper.categories[idx]
+            group_item = self.group_model.add_group(idx, group_name)
+            for sample in samples:
+                self.group_model.append_element_to_group(group_item, sample)
+        return True
 
     def initUI(self):
         # UI elements
@@ -467,8 +487,27 @@ class MainWidget(QWidget):
         hbox.addWidget(okButton)
         hbox.addWidget(cancelButton)
 
+        # vbox = QVBoxLayout()
+        # vbox.addWidget(self.label_img)
+        # vbox.addLayout(hbox)
+
+        datas = {
+            "Category 1": [
+                ("New Game 2", "Playnite"),
+                ("New Game 3", "Playnite"),
+            ],
+            "No Category": [
+                ("New Game", "Playnite"),
+            ]
+        }
+
         vbox = QVBoxLayout()
-        vbox.addWidget(self.label_img)
+        hbox_1 = QHBoxLayout()
+        hbox_1.addWidget(self.label_img, 7)
+        self.group_model = GroupModel(self)
+        self.tree_view = GroupView(self.group_model)
+        hbox_1.addWidget(self.tree_view, 3)
+        vbox.addLayout(hbox_1)
         vbox.addLayout(hbox)
 
         self.setLayout(vbox)
@@ -489,7 +528,7 @@ class MainWidget(QWidget):
                 self.currentImg = self.imgList.pop(0)
                 self.currentCfg = self.imgListCfg.pop(0)
             except Exception:
-                self.currentImg = 'end.png'
+                self.currentImg = './resources/background/end.png'
                 self.currentCfg = ''
         else:
             self.label_img.resetResult()

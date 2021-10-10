@@ -446,31 +446,25 @@ class MainWidget(QWidget):
         # UI elements
         imagePathButton = QPushButton('Image Path (Folder)', self)
         objNamesPathButton = QPushButton('obj.names File Path', self)
-        saveButton = QPushButton('Save', self)
 
-        okButton = QPushButton('Next', self)
+        self.okButton = QPushButton('Next', self)
         cancelButton = QPushButton('Cancel', self)
         imagePathLabel = QLabel('Image Path not selected', self)
         objNamesPathLabel = QLabel('obj.names Path not selected', self)
-        saveLabel = QLabel('.', self)
 
         self.label_img = ImageWidget(self.parent)
 
         # Events
-        okButton.clicked.connect(self.setNextImage)
-        okButton.setEnabled(False)
+        self.okButton.clicked.connect(self.setNextImage)
+        self.okButton.setEnabled(False)
         cancelButton.clicked.connect(self.label_img.cancelLast)
         imagePathButton.clicked.connect(
             lambda: self.registerImagePath(
-                imagePathButton, imagePathLabel, okButton)
+                imagePathButton, imagePathLabel)
         )
         objNamesPathButton.clicked.connect(
             lambda: self.registerObjNamesPath(
-                objNamesPathButton, objNamesPathLabel, okButton)
-        )
-        saveButton.clicked.connect(
-            lambda: self.registerSavePath(
-                saveButton, self.savePathLabel)
+                objNamesPathButton, objNamesPathLabel)
         )
 
         # Config Button
@@ -479,18 +473,16 @@ class MainWidget(QWidget):
         vbox = QVBoxLayout()
         vbox.addWidget(imagePathButton)
         vbox.addWidget(objNamesPathButton)
-        vbox.addWidget(saveButton)
         hbox.addLayout(vbox)
 
         vbox = QVBoxLayout()
         vbox.addWidget(imagePathLabel)
         vbox.addWidget(objNamesPathLabel)
-        vbox.addWidget(saveLabel)
         hbox.addLayout(vbox)
 
         hbox.addStretch(3)
         hbox.addStretch(1)
-        hbox.addWidget(okButton)
+        hbox.addWidget(self.okButton)
         hbox.addWidget(cancelButton)
 
         vbox = QVBoxLayout()
@@ -504,35 +496,18 @@ class MainWidget(QWidget):
 
         self.setLayout(vbox)
 
-    def setNextImage(self, img=None):
-        if not img:
-            res = self.label_img.getResult()
-            if res and len(res[-1]) != 5:
-                self.label_img.showPopupOk('warning messege',
-                                           'please mark the box you drew.')
-                return 'Not Marked'
-            self.writeResults(res)
-            self.label_img.resetResult()
-            try:
-                self.currentImg = self.imgList.pop(0)
-                self.currentCfg = self.imgListCfg.pop(0)
-            except Exception:
-                self.currentImg = './resources/background/end.png'
-                self.currentCfg = ''
-        else:
-            self.label_img.resetResult()
-
+    def setNextImage(self):
+        res = self.label_img.getResult()
+        self.group_model.clear()
+        self.writeResults(res)
+        self.label_img.resetResult()
         try:
-            im = Image.open(self.currentImg)
-            for orientation in ExifTags.TAGS.keys():
-                if ExifTags.TAGS[orientation] == 'Orientation':
-                    break
-            exif = dict(im.getexif().items())
-            if exif[orientation] in [3, 6, 8]:
-                im = im.transpose(Image.ROTATE_180)
-                im.save(self.currentImg)
+            self.currentImg = self.imgList.pop(0)
+            self.currentCfg = self.imgListCfg.pop(0)
         except Exception:
-            pass
+            self.currentImg = './resources/background/end.png'
+            self.currentCfg = ''
+            self.okButton.setEnabled(False)
 
         basename = os.path.basename(self.currentImg)
         self.parent.fileName.setText(basename)
@@ -548,11 +523,11 @@ class MainWidget(QWidget):
             cfg = csv.reader(f, delimiter=' ', dialect='skip_space')
             self.label_img.setObjData(cfg)
 
-    def enableOkButton(self, okButton):
+    def enableOkButton(self):
         if self.image_directory and self.obj_names_path:
-            okButton.setEnabled(True)
+            self.okButton.setEnabled(True)
         else:
-            okButton.setEnabled(False)
+            self.okButton.setEnabled(False)
         return True
 
     def writeResults(self, res):
@@ -569,19 +544,7 @@ class MainWidget(QWidget):
                 with open(self.currentImg[:-4]+'.txt', 'a', encoding='utf8') as resultFile:
                     resultFile.write(' '.join([str(x) for x in yolo_format]) + '\n')
 
-    def registerSavePath(self, savePathButton, label):
-        savePathButton.toggle()
-        self.save_directory = str(QFileDialog.getExistingDirectory(
-            self, "Select Save Directory")
-        )
-        basename = os.path.basename(self.save_directory)
-        if basename:
-            label.setText(basename+'/')
-        else:
-            print("Output Path not selected")
-            self.save_directory = None
-
-    def registerImagePath(self, imagePathButton, imagePathLabel, okButton):
+    def registerImagePath(self, imagePathButton, imagePathLabel):
         imagePathButton.toggle()
         directory = str(
             QFileDialog.getExistingDirectory(self, "Select Input Directory")
@@ -609,9 +572,9 @@ class MainWidget(QWidget):
                 print("Txt not found: %s" % (imgPath[:-fsize] + '.txt'))
                 self.imgList.remove(imgPath)
         imagePathLabel.setText(basename+'/')
-        self.enableOkButton(okButton)
+        self.enableOkButton()
 
-    def registerObjNamesPath(self, objNamesPathButton, objNamesPathLabel, okButton):
+    def registerObjNamesPath(self, objNamesPathButton, objNamesPathLabel):
         """
         Read object.names and save categories
         """
@@ -632,7 +595,7 @@ class MainWidget(QWidget):
                 i: name.replace('\n', '')
                 for i, name in enumerate(obj_names)
             }
-        self.enableOkButton(okButton)
+        self.enableOkButton()
         return
 
     def getConfigFromJson(self, json_file):

@@ -10,6 +10,7 @@ from PyQt5.QtGui import QPixmap, QPainter, QPen, QFont, QColor
 from PyQt5.QtCore import QPoint
 from sample_view import GroupModel, GroupView
 import csv
+import math
 
 
 class MyApp(QMainWindow):
@@ -72,35 +73,32 @@ class SampleGrouper(object):
                 np.random.choice(range(256), size=3)
             ) + [255]
 
-    def getCategories(self):
-        return {
-            i: name
-            for i, name in self.categories.items()
-        }
-
-    def getSamplesToRender(self):
-        return filter(lambda x: x.isVisible(), self.samples)
-
-    def getSamplesToRenderGrouped(self):
+    def getSamplesGrouped(self, only_visible=False):
+        """
+        Return samples grouped
+        if only_visible is True only return visible samples
+        """
         groups = {}
         for sample in self.samples:
-            if not sample.isVisible():
+            if not sample.isVisible() and only_visible:
                 continue
             if sample.idx not in groups:
                 groups[sample.idx] = []
             groups[sample.idx].append(sample)
         return groups
 
-    def getSamplesGrouped(self):
+    def prepareSamplesToSave(self):
+        """
+        Return samples changed grouped
+        by cateogry to save
+        """
         groups = {}
         for sample in self.samples:
-            if sample.idx not in groups:
-                groups[sample.idx] = []
-            groups[sample.idx].append(sample)
+            sample_idx = sample.getFinalIdx()
+            if sample_idx not in groups:
+                groups[sample_idx] = []
+            groups[sample_idx].append(sample)
         return groups
-
-    def needToSave(self):
-        return bool(self.new_samples)
 
     def setGroupVisibility(self, idx, visible):
         for sample in self.samples:
@@ -125,6 +123,21 @@ class SampleObject(object):
         self._new_idx = None
         self._new = False
         self._changed = False
+
+    def _truncate(self, number):
+        """
+        Returns a value truncated to a specific
+        number of decimal places.
+        """
+        factor = 10.0 ** 6
+        number += 0.0000001 # Sum lost decimals
+        return str(math.trunc(number * factor) / factor).ljust(8, '0')
+
+    def getFinalIdx(self):
+        idx = self._new_idx
+        if self._new_idx is None:
+            idx = self.idx
+        return idx
 
     def isNew(self):
         return self._new
@@ -153,6 +166,9 @@ class SampleObject(object):
             self._new_idx = None
             self._changed = False
         return True
+
+    def needToSave(self):
+        return bool(self._changed)
 
     def addYoloCfg(self, line_number, pos_cfg, categories={}):
         self.idx = int(pos_cfg[0])
@@ -187,11 +203,11 @@ class SampleObject(object):
         # yolo (obj_cfg) : (idx center_x_ratio, center_y_ratio,
         #         width_ratio, height_ratio)
         yolo_format = [
-            self.idx,
-            (self.lx + self.rx)/2/self._W,
-            (self.ly + self.ry)/2/self._H,
-            (self.rx - self.lx)/self._W,
-            (self.ry - self.ly)/self._H
+            str(self.getFinalIdx()),
+            self._truncate((self.lx + self.rx)/2/self._W),
+            self._truncate((self.ly + self.ry)/2/self._H),
+            self._truncate((self.rx - self.lx)/self._W),
+            self._truncate((self.ry - self.ly)/self._H),
         ]
         return yolo_format
 
@@ -249,7 +265,7 @@ class ImageWidget(QWidget):
         font = QFont('mono', 10, 1)
         painter.setFont(font)
         # Dibujamos por grupos
-        groups = self.grouper.getSamplesToRenderGrouped()
+        groups = self.grouper.getSamplesGrouped(only_visible=True)
         for gindex, samples in groups.items():
             gcolor = self.grouper.categories_color[gindex]
             qcolor = QColor(*gcolor)
@@ -279,21 +295,36 @@ class ImageWidget(QWidget):
         self.setFixedSize(self.W, self.H)
         self.pixmapOriginal = QPixmap.copy(self.pixmap)
 
-    def setObjData(self, obj_datas):
+    def setObjData(self, obj_path):
         """
         Read image txt and draw created boxes
         """
         # Create new grouper
-        categories = self.parent.mainWidget.categories
+        main_widget = self.parent.mainWidget
+        categories = main_widget.categories
         self.grouper = SampleGrouper(categories)
         self.resetResult()
-        for line_number, obj_data in enumerate(obj_datas):
-            sample = SampleObject(ratio=self.getRatio())
-            sample.addYoloCfg(line_number, obj_data, categories=categories)
-            self.grouper.addSample(sample)
-            box = sample.getBoxFormat()
-            self.results.append(box)
-        self.parent.mainWidget.refreshTreeView()
+        main_widget.group_model.removeRows(
+            0, main_widget.group_model.rowCount()
+        )
+        if not obj_path:
+            return False
+        with open(obj_path, 'r') as f:
+            obj_datas = csv.reader(f, delimiter=' ', dialect='skip_space')
+            for line_number, obj_data in enumerate(obj_datas):
+                if len(obj_data) != 5:
+                    raise Exception(
+                        "Invalid config file: %s \n. Line %s.\n"
+                        "Expected 5 elements: %s"
+                        % (main_widget.currentCfg, line_number, str(obj_data))
+                    )
+                sample = SampleObject(ratio=self.getRatio())
+                sample.addYoloCfg(line_number, obj_data,
+                                  categories=categories)
+                self.grouper.addSample(sample)
+                box = sample.getBoxFormat()
+                self.results.append(box)
+        main_widget.refreshTreeView()
         self.pixmap = self.drawSamplesBox()
         self.update()
 
@@ -325,6 +356,7 @@ class MainWidget(QWidget):
         super(MainWidget, self).__init__(parent)
         self.parent = parent
         self.currentImg = "start.png"
+        self.currentCfg = ""
         self.image_directory = None
         self.train_path = None
         self.obj_names_path = None
@@ -476,10 +508,7 @@ class MainWidget(QWidget):
             self.image_index -= 1
         else:
             self.image_index += 1
-
-        self.group_model.removeRows(0, self.group_model.rowCount())
-        res = self.label_img.getResult()
-        self.writeResults(res)
+        self.writeSamples()
         # start?
         if self.image_index < 0:
             self.currentImg = './resources/background/start.png'
@@ -505,10 +534,7 @@ class MainWidget(QWidget):
         self.label_img.setPixmap(self.currentImg)
         self.label_img.update()
         self.parent.fitSize()
-        if self.currentCfg:
-            with open(self.currentCfg, 'r') as f:
-                cfg = csv.reader(f, delimiter=' ', dialect='skip_space')
-                self.label_img.setObjData(cfg)
+        self.label_img.setObjData(self.currentCfg)
 
     def enableOkButton(self):
         if self.image_directory and self.obj_names_path:
@@ -517,22 +543,20 @@ class MainWidget(QWidget):
             self.okButton.setEnabled(False)
         return True
 
-    def writeResults(self, res):
-        if self.parent.fileName.text() != 'Ready':
-            W, H = self.label_img.getRatio()
-            if not res:
-                open(self.currentImg[:-4]+'.txt', 'a', encoding='utf8').close()
-            for i, elements in enumerate(res):  # box : (lx, ly, rx, ry, idx)
-                lx, ly, rx, ry, idx = elements
-                # yolo : (idx center_x_ratio, center_y_ratio,
-                #         width_ratio, height_ratio)
-                yolo_format = [idx, (lx+rx)/2/W, (ly+ry)/2/H,
-                               (rx-lx)/W, (ry-ly)/H]
-                with open(self.currentImg[:-4]+'.txt', 'a',
-                          encoding='utf8') as resultFile:
-                    resultFile.write(' '.join([
-                        str(x) for x in yolo_format
-                    ]) + '\n')
+    def writeSamples(self):
+        if not self.currentCfg:
+            return True
+        groups = self.label_img.grouper.prepareSamplesToSave()
+        with open(self.currentCfg, 'r+', encoding='utf8') as file:
+            file.truncate(0)
+            groups_keys = list(groups.keys())
+            groups_keys.sort()
+            for group_idx in groups_keys:
+                samples = groups[group_idx]
+                for sample in samples:
+                    writer = csv.writer(file, delimiter=' ', dialect='skip_space')
+                    writer.writerow(sample.getYoloFormat())
+        return True
 
     def registerImagePath(self, imagePathButton, imagePathLabel):
         imagePathButton.toggle()
@@ -549,6 +573,8 @@ class MainWidget(QWidget):
         self.imgList = []
         for t in types:
             self.imgList.extend(glob(directory+'/'+t))
+        # Sort img List
+        self.imgList.sort()
         self.total_imgs = len(self.imgList)
 
         self.imgListCfg = []

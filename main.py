@@ -1,9 +1,6 @@
 import sys
 import os
-import cv2
-import json
 import numpy as np
-from PIL import Image, ExifTags
 from glob import glob
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QPushButton
@@ -16,6 +13,7 @@ import csv
 
 
 class MyApp(QMainWindow):
+
     def __init__(self):
         super().__init__()
         self.initUI()
@@ -29,7 +27,6 @@ class MyApp(QMainWindow):
         self.fileName = QLabel('Ready')
         self.cursorPos = QLabel('      ')
         self.imageSize = QLabel('      ')
-        self.autoLabel = QLabel('Manual Label')
         self.progress = QLabel('                 ')  # reserve widget space
 
         widget = QWidget(self)
@@ -39,7 +36,6 @@ class MyApp(QMainWindow):
         widget.layout().addWidget(self.imageSize)
         widget.layout().addWidget(self.cursorPos)
         widget.layout().addStretch(1)
-        widget.layout().addWidget(self.autoLabel)
         widget.layout().addStretch(2)
         widget.layout().addWidget(self.progress)
         statusbar.addWidget(widget, 1)
@@ -115,6 +111,7 @@ class SampleGrouper(object):
             else:
                 sample.setInvisible()
         return True
+
 
 class SampleObject(object):
 
@@ -282,28 +279,6 @@ class ImageWidget(QWidget):
         self.setFixedSize(self.W, self.H)
         self.pixmapOriginal = QPixmap.copy(self.pixmap)
 
-    def _getObjCfg(self, obj_data):
-        # box : (lx, ly, rx, ry, idx)
-        # yolo (obj_cfg) : (idx center_x_ratio, center_y_ratio,
-        #         width_ratio, height_ratio)
-        W, H = self.getRatio()
-        center_x = float(obj_data[1])
-        center_y = float(obj_data[2])
-        width = float(obj_data[3])
-        height = float(obj_data[4])
-        vals = {
-            'idx': int(obj_data[0]),
-            'center_x': center_x,
-            'center_y': center_y,
-            'width': width,
-            'height': height,
-            'lx': (center_x - (width / 2)) * W,
-            'rx': (center_x + (width / 2)) * W,
-            'ly': (center_y - (height / 2)) * H,
-            'ry': (center_y + (height / 2)) * H,
-        }
-        return vals
-
     def setObjData(self, obj_datas):
         """
         Read image txt and draw created boxes
@@ -321,12 +296,6 @@ class ImageWidget(QWidget):
         self.parent.mainWidget.refreshTreeView()
         self.pixmap = self.drawSamplesBox()
         self.update()
-
-    def cancelLast(self):
-        if self.results:
-            self.results.pop()  # pop last
-            self.pixmap = self.drawResultBox()
-            self.update()
 
     def getRatio(self):
         return self.W, self.H
@@ -346,16 +315,16 @@ class ImageWidget(QWidget):
                 self.results[-1][-1] = idx
             else:
                 raise ValueError('invalid results')
-            self.pixmap = self.drawResultBox()
+            self.pixmap = self.drawSamplesBox()
             self.update()
 
 
 class MainWidget(QWidget):
+
     def __init__(self, parent):
         super(MainWidget, self).__init__(parent)
         self.parent = parent
         self.currentImg = "start.png"
-        config_dict = self.getConfigFromJson('config.json')
         self.image_directory = None
         self.train_path = None
         self.obj_names_path = None
@@ -447,17 +416,23 @@ class MainWidget(QWidget):
         imagePathButton = QPushButton('Image Path (Folder)', self)
         objNamesPathButton = QPushButton('obj.names File Path', self)
 
+        self.backButton = QPushButton('Back', self)
         self.okButton = QPushButton('Next', self)
-        cancelButton = QPushButton('Cancel', self)
         imagePathLabel = QLabel('Image Path not selected', self)
         objNamesPathLabel = QLabel('obj.names Path not selected', self)
 
         self.label_img = ImageWidget(self.parent)
+        self.image_index = -1
 
         # Events
-        self.okButton.clicked.connect(self.setNextImage)
+        self.okButton.clicked.connect(
+            lambda: self.setNextImage()
+        )
+        self.backButton.clicked.connect(
+            lambda: self.setNextImage(go_back=True)
+        )
         self.okButton.setEnabled(False)
-        cancelButton.clicked.connect(self.label_img.cancelLast)
+        self.backButton.setEnabled(False)
         imagePathButton.clicked.connect(
             lambda: self.registerImagePath(
                 imagePathButton, imagePathLabel)
@@ -482,8 +457,8 @@ class MainWidget(QWidget):
 
         hbox.addStretch(3)
         hbox.addStretch(1)
+        hbox.addWidget(self.backButton)
         hbox.addWidget(self.okButton)
-        hbox.addWidget(cancelButton)
 
         vbox = QVBoxLayout()
         hbox_1 = QHBoxLayout()
@@ -496,32 +471,44 @@ class MainWidget(QWidget):
 
         self.setLayout(vbox)
 
-    def setNextImage(self):
-        res = self.label_img.getResult()
+    def setNextImage(self, go_back=False):
+        if go_back:
+            self.image_index -= 1
+        else:
+            self.image_index += 1
+
         self.group_model.removeRows(0, self.group_model.rowCount())
+        res = self.label_img.getResult()
         self.writeResults(res)
-        self.label_img.resetResult()
-        try:
-            self.currentImg = self.imgList.pop(0)
-            self.currentCfg = self.imgListCfg.pop(0)
-        except Exception:
-            self.currentImg = './resources/background/end.png'
+        # start?
+        if self.image_index < 0:
+            self.currentImg = './resources/background/start.png'
             self.currentCfg = ''
-            self.okButton.setEnabled(False)
+            self.backButton.setEnabled(False)
+            self.parent.progress.setText("")
+        else:
+            try:
+                self.currentImg = self.imgList[self.image_index]
+                self.currentCfg = self.imgListCfg[self.image_index]
+            except Exception:
+                self.currentImg = './resources/background/end.png'
+                self.currentCfg = ''
+                self.okButton.setEnabled(False)
+            self.backButton.setEnabled(True)
+            self.parent.progress.setText(
+                str(self.image_index) +
+                '/'+str(self.total_imgs)
+            )
 
         basename = os.path.basename(self.currentImg)
         self.parent.fileName.setText(basename)
-        self.parent.progress.setText(
-            str(self.total_imgs-len(self.imgList)) +
-            '/'+str(self.total_imgs)
-        )
-
         self.label_img.setPixmap(self.currentImg)
         self.label_img.update()
         self.parent.fitSize()
-        with open(self.currentCfg, 'r') as f:
-            cfg = csv.reader(f, delimiter=' ', dialect='skip_space')
-            self.label_img.setObjData(cfg)
+        if self.currentCfg:
+            with open(self.currentCfg, 'r') as f:
+                cfg = csv.reader(f, delimiter=' ', dialect='skip_space')
+                self.label_img.setObjData(cfg)
 
     def enableOkButton(self):
         if self.image_directory and self.obj_names_path:
@@ -541,8 +528,11 @@ class MainWidget(QWidget):
                 #         width_ratio, height_ratio)
                 yolo_format = [idx, (lx+rx)/2/W, (ly+ry)/2/H,
                                (rx-lx)/W, (ry-ly)/H]
-                with open(self.currentImg[:-4]+'.txt', 'a', encoding='utf8') as resultFile:
-                    resultFile.write(' '.join([str(x) for x in yolo_format]) + '\n')
+                with open(self.currentImg[:-4]+'.txt', 'a',
+                          encoding='utf8') as resultFile:
+                    resultFile.write(' '.join([
+                        str(x) for x in yolo_format
+                    ]) + '\n')
 
     def registerImagePath(self, imagePathButton, imagePathLabel):
         imagePathButton.toggle()
@@ -597,19 +587,6 @@ class MainWidget(QWidget):
             }
         self.enableOkButton()
         return
-
-    def getConfigFromJson(self, json_file):
-        # parse the configurations from the config json file provided
-        with open(json_file, 'r') as config_file:
-            try:
-                config_dict = json.load(config_file)
-                # EasyDict allows to access dict values
-                # as attributes (works recursively).
-                return config_dict
-            except ValueError:
-                print("INVALID JSON file format.. "
-                      "Please provide a good json file")
-                exit(-1)
 
 
 if __name__ == '__main__':

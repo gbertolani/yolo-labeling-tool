@@ -104,7 +104,17 @@ class SampleGrouper(object):
         return groups
 
     def needToSave(self):
-        return bool(new_samples)
+        return bool(self.new_samples)
+
+    def setGroupVisibility(self, idx, visible):
+        for sample in self.samples:
+            if sample.idx != idx:
+                continue
+            if visible:
+                sample.setVisible()
+            else:
+                sample.setInvisible()
+        return True
 
 class SampleObject(object):
 
@@ -115,6 +125,7 @@ class SampleObject(object):
         self._W = ratio[0]
         self._H = ratio[1]
         self._visible = True
+        self._new_idx = None
         self._new = False
         self._changed = False
 
@@ -135,10 +146,15 @@ class SampleObject(object):
         self._visible = True
         return True
 
-    def setCategory(self, idx, category_name):
-        self.category_name = category_name
-        self.idx = idx
+    def setCategory(self, idx):
+        self._new_idx = idx
         self._changed = True
+        return True
+
+    def resetCategory(self):
+        if self._new_idx:
+            self._new_idx = None
+            self._changed = False
         return True
 
     def addYoloCfg(self, line_number, pos_cfg, categories={}):
@@ -195,12 +211,11 @@ class SampleObject(object):
 
 
 class ImageWidget(QWidget):
-    def __init__(self, parent, key_cfg):
+    def __init__(self, parent):
         super(ImageWidget, self).__init__(parent)
         self.parent = parent
         self.results = []
         self.setMouseTracking(True)
-        self.key_config = key_cfg
         self.screen_height = QDesktopWidget().screenGeometry().height()
         self.last_idx = 0
 
@@ -222,58 +237,6 @@ class ImageWidget(QWidget):
         painter = QPainter(self)
         painter.drawPixmap(self.rect(), self.pixmap)
 
-    # def mousePressEvent(self, event):
-    #     if event.button() == Qt.LeftButton:
-    #         self.prev_pixmap = self.pixmap
-    #         self.drawing = True
-    #         self.lastPoint = event.pos()
-    #     elif event.button() == Qt.RightButton:
-    #         x, y = event.pos().x(), event.pos().y()
-    #         for i, box in enumerate(self.results):
-    #             lx, ly, rx, ry = box[:4]
-    #             if lx <= x <= rx and ly <= y <= ry:
-    #                 self.results.pop(i)
-    #                 self.pixmap = self.drawResultBox()
-    #                 self.update()
-    #                 break
-    #
-    # def mouseMoveEvent(self, event):
-    #     self.parent.cursorPos.setText(
-    #         '({}, {})'.format(event.pos().x(), event.pos().y()))
-    #     if event.buttons() and Qt.LeftButton and self.drawing:
-    #         self.pixmap = QPixmap.copy(self.prev_pixmap)
-    #         painter = QPainter(self.pixmap)
-    #         painter.setPen(QPen(Qt.red, 2, Qt.SolidLine))
-    #         p1_x, p1_y = self.lastPoint.x(), self.lastPoint.y()
-    #         p2_x, p2_y = event.pos().x(), event.pos().y()
-    #         painter.drawRect(min(p1_x, p2_x), min(p1_y, p2_y),
-    #                          abs(p1_x-p2_x), abs(p1_y-p2_y))
-    #         self.update()
-    #
-    # def mouseReleaseEvent(self, event):
-    #     if event.button() == Qt.LeftButton:
-    #         p1_x, p1_y = self.lastPoint.x(), self.lastPoint.y()
-    #         p2_x, p2_y = event.pos().x(), event.pos().y()
-    #         lx, ly = min(p1_x, p2_x), min(p1_y, p2_y)
-    #         w, h = abs(p1_x-p2_x), abs(p1_y-p2_y)
-    #         if (p1_x, p1_y) != (p2_x, p2_y):
-    #             if self.results and (len(self.results[-1]) == 4) \
-    #                     and self.parent.autoLabel.text() == 'Manual Label':
-    #                 self.showPopupOk('warning messege',
-    #                                  'Please mark the box you drew.')
-    #                 self.pixmap = self.drawResultBox()
-    #                 self.update()
-    #             elif self.parent.autoLabel.text() == 'Auto Label':
-    #                 self.results.append([lx, ly, lx+w, ly+h, self.last_idx])
-    #                 for i, result in enumerate(self.results):
-    #                     if len(result) == 4:  # fill empty labels
-    #                         self.results[i].append(self.last_idx)
-    #                 self.pixmap = self.drawResultBox()
-    #                 self.update()
-    #             else:
-    #                 self.results.append([lx, ly, lx+w, ly+h])
-    #             self.drawing = False
-
     def showPopupOk(self, title: str, content: str):
         msg = QMessageBox()
         msg.setWindowTitle(title)
@@ -282,21 +245,6 @@ class ImageWidget(QWidget):
         result = msg.exec_()
         if result == QMessageBox.Ok:
             msg.close()
-
-    # def drawResultBox(self):
-    #     res = QPixmap.copy(self.pixmapOriginal)
-    #     painter = QPainter(res)
-    #     font = QFont('mono', 15, 1)
-    #     painter.setFont(font)
-    #     painter.setPen(QPen(Qt.red, 2, Qt.SolidLine))
-    #     for box in self.results:
-    #         lx, ly, rx, ry = box[:4]
-    #         painter.drawRect(lx, ly, rx-lx, ry-ly)
-    #         if len(box) == 5:
-    #             painter.setPen(QPen(Qt.blue, 2, Qt.SolidLine))
-    #             painter.drawText(lx, ly+15, self.key_config[box[-1]])
-    #             painter.setPen(QPen(Qt.red, 2, Qt.SolidLine))
-    #     return res
 
     def drawSamplesBox(self):
         res = QPixmap.copy(self.pixmapOriginal)
@@ -408,16 +356,20 @@ class MainWidget(QWidget):
         self.parent = parent
         self.currentImg = "start.png"
         config_dict = self.getConfigFromJson('config.json')
-        self.key_config = [
-            config_dict['key_'+str(i)]
-            for i in range(1, 10)
-            if config_dict['key_'+str(i)]
-        ]
         self.image_directory = None
         self.train_path = None
         self.obj_names_path = None
         self.categories = {}
         self.initUI()
+
+    def showPopupOk(self, title, content):
+        msg = QMessageBox()
+        msg.setWindowTitle(title)
+        msg.setText(content)
+        msg.setStandardButtons(QMessageBox.Ok)
+        result = msg.exec_()
+        if result == QMessageBox.Ok:
+            msg.close()
 
     def refreshTreeView(self):
         render = self.label_img
@@ -427,6 +379,67 @@ class MainWidget(QWidget):
             group_item = self.group_model.add_group(idx, group_name)
             for sample in samples:
                 self.group_model.append_element_to_group(group_item, sample)
+        try:
+            self.group_model.disconnect(self.registerTreeCellChange)
+        except Exception:
+            pass
+        self.group_model.itemChanged.connect(self.registerTreeCellChange)
+        return True
+
+    def registerTreeCellChange(self, item):
+        if getattr(self, '_on_register_tree_cell', False):
+            return True
+        item_data = item.data()
+        self._on_register_tree_cell = True
+        if isinstance(item_data, int):  # Grouper
+            self.label_img.grouper.setGroupVisibility(
+                item_data, bool(item.checkState())
+            )
+            # Root element:
+            root = item.data(3)
+            for row in range(0, root.rowCount()):
+                root.child(row, 1).setCheckState(item.checkState())
+            self.label_img.pixmap = self.label_img.drawSamplesBox()
+            self.label_img.update()
+        elif isinstance(item_data, SampleObject):
+            # Cambio la categoria?
+            if item.column() == 2:
+                item.setForeground(QColor("#000000"))
+                if not item.data(2):
+                    self._on_register_tree_cell = False
+                    item_data.resetCategory()
+                    return
+                try:
+                    category_index = int(item.data(2).strip())
+                except Exception:
+                    self.showPopupOk(
+                        "Error!", "Category must be integer"
+                    )
+                    item.setData("", 2)
+                    self._on_register_tree_cell = False
+                    return
+                if category_index not in self.categories:
+                    self.showPopupOk(
+                        "Error!",
+                        "Category index must be in %s. \n Categories: %s"
+                        % (
+                            str(list(self.categories.keys())),
+                            str(self.categories),
+                        )
+                    )
+                    item.setData("", 2)
+                    self._on_register_tree_cell = False
+                    return
+                item_data.setCategory(category_index)
+                item.setForeground(QColor("#FF0000"))
+            else:
+                if bool(item.checkState()):
+                    item_data.setVisible()
+                else:
+                    item_data.setInvisible()
+                self.label_img.pixmap = self.label_img.drawSamplesBox()
+                self.label_img.update()
+        self._on_register_tree_cell = False
         return True
 
     def initUI(self):
@@ -443,7 +456,7 @@ class MainWidget(QWidget):
         objNamesPathLabel = QLabel('obj.names Path not selected', self)
         saveLabel = QLabel('.', self)
 
-        self.label_img = ImageWidget(self.parent, self.key_config)
+        self.label_img = ImageWidget(self.parent)
 
         # Events
         okButton.clicked.connect(self.setNextImage)
@@ -487,20 +500,6 @@ class MainWidget(QWidget):
         hbox.addWidget(okButton)
         hbox.addWidget(cancelButton)
 
-        # vbox = QVBoxLayout()
-        # vbox.addWidget(self.label_img)
-        # vbox.addLayout(hbox)
-
-        datas = {
-            "Category 1": [
-                ("New Game 2", "Playnite"),
-                ("New Game 3", "Playnite"),
-            ],
-            "No Category": [
-                ("New Game", "Playnite"),
-            ]
-        }
-
         vbox = QVBoxLayout()
         hbox_1 = QHBoxLayout()
         hbox_1.addWidget(self.label_img, 7)
@@ -513,9 +512,6 @@ class MainWidget(QWidget):
         self.setLayout(vbox)
 
     def setNextImage(self, img=None):
-        # if self.savePathLabel.text() == 'Results' and self.crop_mode:
-        #     os.makedirs(self.save_directory, exist_ok=True)
-
         if not img:
             res = self.label_img.getResult()
             if res and len(res[-1]) != 5:
@@ -579,25 +575,6 @@ class MainWidget(QWidget):
                                (rx-lx)/W, (ry-ly)/H]
                 with open(self.currentImg[:-4]+'.txt', 'a', encoding='utf8') as resultFile:
                     resultFile.write(' '.join([str(x) for x in yolo_format]) + '\n')
-                # if self.crop_mode:
-                #     img = cv2.imread(self.currentImg)
-                #     if img is None:
-                #         n = np.fromfile(self.currentImg, np.uint8)
-                #         img = cv2.imdecode(n, cv2.IMREAD_COLOR)
-                #     oh, ow = img.shape[:2]
-                #     w, h = round(yolo_format[3]*ow), round(yolo_format[4]*oh)
-                #     x, y = round(yolo_format[1]*ow - w/2), round(yolo_format[2]*oh - h/2)
-                #     crop_img = img[y:y+h, x:x+w]
-                #     basename = os.path.basename(self.currentImg)
-                #     filename = basename[:-4]+'-{}-{}.jpg'.format(self.key_config[idx], i)
-                #
-                #     # Korean dir support
-                #     crop_img = cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB)
-                #     crop_img = Image.fromarray(crop_img)
-                #     crop_img.save(os.path.join(
-                #         self.save_directory, filename),
-                #         dpi=(300, 300)
-                #     )
 
     def registerSavePath(self, savePathButton, label):
         savePathButton.toggle()
@@ -683,10 +660,6 @@ class MainWidget(QWidget):
                 i: name.replace('\n', '')
                 for i, name in enumerate(obj_names)
             }
-            self.key_config = [
-                x.replace('\n', '')
-                for x in obj_names
-            ]
         self.enableOkButton(okButton)
         return
 
@@ -702,26 +675,6 @@ class MainWidget(QWidget):
                 print("INVALID JSON file format.. "
                       "Please provide a good json file")
                 exit(-1)
-
-    def keyPressEvent(self, e):
-        config_len = len(self.key_config)
-        for i, key_n in enumerate(range(49, 58), 1):
-            if e.key() == key_n and config_len >= i:
-                self.label_img.markBox(i-1)
-                break
-        if e.key() == Qt.Key_Escape:
-            self.label_img.cancelLast()
-        elif e.key() == Qt.Key_E:
-            self.setNextImage()
-        elif e.key() == Qt.Key_Q:
-            self.label_img.resetResult()
-            self.label_img.pixmap = self.label_img.drawResultBox()
-            self.label_img.update()
-        elif e.key() == Qt.Key_A:
-            if self.parent.autoLabel.text() == 'Auto Label':
-                self.parent.autoLabel.setText('Manual Label')
-            else:
-                self.parent.autoLabel.setText('Auto Label')
 
 
 if __name__ == '__main__':

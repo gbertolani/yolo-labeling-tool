@@ -6,7 +6,6 @@ class GroupDelegate(QtWidgets.QStyledItemDelegate):
     def __init__(self, parent=None):
         super(GroupDelegate, self).__init__(parent)
         self._plus_icon = QtGui.QIcon("./resources/icons/plus.png")
-        # self._plus_icon = QtGui.QIcon("plus.png")
         self._minus_icon = QtGui.QIcon("./resources/icons/minus.png")
 
     def initStyleOption(self, option, index):
@@ -31,7 +30,6 @@ class GroupView(QtWidgets.QTreeView):
             0, QtWidgets.QHeaderView.ResizeToContents
         )
         self.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
-        # self.setStyleSheet("background-color: #0D1225;")
 
     @QtCore.pyqtSlot(QtCore.QModelIndex)
     def on_clicked(self, index):
@@ -46,21 +44,22 @@ class GroupModel(QtGui.QStandardItemModel):
         self.setColumnCount(3)
         self.setHorizontalHeaderLabels(["", "Name", "New Category"])
         for i in range(self.columnCount()):
-            it = self.horizontalHeaderItem(i)
+            self.horizontalHeaderItem(i)
 
     def add_group(self, idx, group_name):
         item_root = QtGui.QStandardItem()
         item_root.setEditable(False)
         item = QtGui.QStandardItem(group_name + " [%s]" % str(idx))
-        item.setEditable(True)
+        item.setEditable(False)
         item.setCheckable(True)
         item.setCheckState(QtCore.Qt.CheckState(2))
         item.setData(idx)
+        item.setData(item_root, 3)
         ii = self.invisibleRootItem()
         i = ii.rowCount()
         for j, it in enumerate((item_root, item)):
             ii.setChild(i, j, it)
-            ii.setEditable(True)
+            ii.setEditable(False)
         for j in range(self.columnCount()):
             it = ii.child(i, j)
             if it is None:
@@ -78,17 +77,11 @@ class GroupModel(QtGui.QStandardItemModel):
         group_item.setChild(j, 1, item)
         item.setEditable(True)
         item.setCheckable(True)
+        item.setData(sample)
         checked_state = 2 if sample.isVisible() else 0
         item.setCheckState(QtCore.Qt.CheckState(checked_state))
         item_icon = QtGui.QStandardItem()
         item_icon.setEditable(True)
         item_icon.setIcon(QtGui.QIcon("./resources/icons/category2.png"))
+        item_icon.setData(sample)
         group_item.setChild(j, 2, item_icon)
-        # group_item.setChild(j, 1, "")
-        # for i, children in enumerate(texts):
-        #     item = QtGui.QStandardItem(text)
-        #     item.setEditable(True)
-        #     item.setCheckable(True)
-        #     group_item.setChild(j, i+1, item)
-
-

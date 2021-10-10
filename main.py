@@ -498,7 +498,7 @@ class MainWidget(QWidget):
 
     def setNextImage(self):
         res = self.label_img.getResult()
-        self.group_model.clear()
+        self.group_model.removeRows(0, self.group_model.rowCount())
         self.writeResults(res)
         self.label_img.resetResult()
         try:

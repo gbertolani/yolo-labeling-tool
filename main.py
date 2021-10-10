@@ -445,14 +445,12 @@ class MainWidget(QWidget):
     def initUI(self):
         # UI elements
         imagePathButton = QPushButton('Image Path (Folder)', self)
-        trainPathButton = QPushButton('train.txt Path', self)
         objNamesPathButton = QPushButton('obj.names File Path', self)
         saveButton = QPushButton('Save', self)
 
         okButton = QPushButton('Next', self)
         cancelButton = QPushButton('Cancel', self)
         imagePathLabel = QLabel('Image Path not selected', self)
-        trainPathLabel = QLabel('train.txt Path not selected', self)
         objNamesPathLabel = QLabel('obj.names Path not selected', self)
         saveLabel = QLabel('.', self)
 
@@ -466,12 +464,9 @@ class MainWidget(QWidget):
             lambda: self.registerImagePath(
                 imagePathButton, imagePathLabel, okButton)
         )
-        trainPathButton.clicked.connect(
-            lambda: self.registerTrainPath(trainPathButton, trainPathLabel)
-        )
         objNamesPathButton.clicked.connect(
             lambda: self.registerObjNamesPath(
-                trainPathButton, objNamesPathLabel, okButton)
+                objNamesPathButton, objNamesPathLabel, okButton)
         )
         saveButton.clicked.connect(
             lambda: self.registerSavePath(
@@ -483,14 +478,12 @@ class MainWidget(QWidget):
 
         vbox = QVBoxLayout()
         vbox.addWidget(imagePathButton)
-        vbox.addWidget(trainPathButton)
         vbox.addWidget(objNamesPathButton)
         vbox.addWidget(saveButton)
         hbox.addLayout(vbox)
 
         vbox = QVBoxLayout()
         vbox.addWidget(imagePathLabel)
-        vbox.addWidget(trainPathLabel)
         vbox.addWidget(objNamesPathLabel)
         vbox.addWidget(saveLabel)
         hbox.addLayout(vbox)
@@ -617,27 +610,6 @@ class MainWidget(QWidget):
                 self.imgList.remove(imgPath)
         imagePathLabel.setText(basename+'/')
         self.enableOkButton(okButton)
-
-    def registerTrainPath(self, trainPathButton, trainPathLabel):
-        trainPathButton.toggle()
-        file_path = QFileDialog.getOpenFileName(
-            self, "Select Train file", filter="*.txt")[0]
-        file_name = os.path.basename(file_path)
-        if not file_name:
-            print("Train file Path not selected")
-            return -1
-
-        trainPathLabel.setText(file_name)
-        self.train_path = file_name
-
-        # Read Data
-        with open(file_path, 'r') as f:
-            paths = f.readlines()
-            self.sample_paths = [
-                x.replace('\n', '')
-                for x in paths
-            ]
-        return
 
     def registerObjNamesPath(self, objNamesPathButton, objNamesPathLabel, okButton):
         """

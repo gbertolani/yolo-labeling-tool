@@ -11,6 +11,7 @@ from PyQt5.QtCore import QPoint
 from sample_view import GroupModel, GroupView
 import csv
 import math
+import re
 
 
 class MyApp(QMainWindow):
@@ -579,13 +580,20 @@ class MainWidget(QWidget):
 
         self.imgListCfg = []
         for imgPath in self.imgList:
-            fsize = 4
-            if '.' not in imgPath[:-5]:
-                fsize = 5
-            if os.path.exists(imgPath[:-fsize] + '.txt'):
-                self.imgListCfg.append(imgPath[:-fsize] + '.txt')
+            if 'predicted' in imgPath:
+                self.imgList.remove(imgPath)
+                continue
+            txt_path = imgPath
+            for type in types:
+                txt_path = re.sub('.' + type + '$', '.txt', txt_path)
+            if txt_path == imgPath:
+                print("Txt not found: %s" % (imgPath))
+                self.imgList.remove(imgPath)
+                continue
+            if os.path.exists(txt_path):
+                self.imgListCfg.append(txt_path)
             else:
-                print("Txt not found: %s" % (imgPath[:-fsize] + '.txt'))
+                print("Txt not found: %s" % (txt_path))
                 self.imgList.remove(imgPath)
         imagePathLabel.setText(basename+'/')
         self.enableOkButton()

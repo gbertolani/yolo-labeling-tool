@@ -534,7 +534,7 @@ class MainWidget(QWidget):
         self.parent.fileName.setText(basename)
         self.label_img.setPixmap(self.currentImg)
         self.label_img.update()
-        self.parent.fitSize()
+        # self.parent.fitSize()
         self.label_img.setObjData(self.currentCfg)
 
     def enableOkButton(self):
@@ -571,28 +571,21 @@ class MainWidget(QWidget):
         self.image_directory = basename
 
         types = ('*.jpg', '*.png', '*.jpeg')
-        self.imgList = []
+        self._imgList = []
         for t in types:
-            self.imgList.extend(glob(directory+'/'+t))
+            self._imgList.extend(glob(directory+'/'+t))
         # Sort img List
-        self.imgList.sort()
-        self.total_imgs = len(self.imgList)
+        self._imgList.sort()
 
         self.imgListCfg = []
-        for imgPath in self.imgList:
-            if 'predicted' in imgPath:
-                self.imgList.remove(imgPath)
-                continue
-            txt_path = re.sub('.png$', '.txt', imgPath)
-            if txt_path == imgPath:
-                print("Txt not found: %s" % (imgPath))
-                self.imgList.remove(imgPath)
-                continue
-            if os.path.exists(txt_path):
+        self.imgList = []
+        for img_path in self._imgList:
+            txt_path = re.sub('.png$', '.txt', img_path)
+            if os.path.exists(txt_path) and txt_path != img_path:
                 self.imgListCfg.append(txt_path)
-            else:
-                print("Txt not found: %s" % (txt_path))
-                self.imgList.remove(imgPath)
+                self.imgList.append(img_path)
+        self.total_imgs = len(self.imgList)
+        print("Total images with text found: ", str(self.total_imgs))
         imagePathLabel.setText(basename+'/')
         self.enableOkButton()
 

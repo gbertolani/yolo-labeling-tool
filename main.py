@@ -583,9 +583,7 @@ class MainWidget(QWidget):
             if 'predicted' in imgPath:
                 self.imgList.remove(imgPath)
                 continue
-            txt_path = imgPath
-            for type in types:
-                txt_path = re.sub('.' + type + '$', '.txt', txt_path)
+            txt_path = re.sub('.png$', '.txt', imgPath)
             if txt_path == imgPath:
                 print("Txt not found: %s" % (imgPath))
                 self.imgList.remove(imgPath)

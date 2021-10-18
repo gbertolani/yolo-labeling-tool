@@ -376,6 +376,7 @@ class MainWidget(QWidget):
     def refreshTreeView(self):
         render = self.label_img
         samples_grouped = render.grouper.getSamplesGrouped()
+        self._on_refresh = True
         for idx, samples in samples_grouped.items():
             group_name = render.grouper.categories[idx]
             group_item = self.group_model.add_group(idx, group_name)
@@ -386,6 +387,7 @@ class MainWidget(QWidget):
         except Exception:
             pass
         self.group_model.itemChanged.connect(self.registerTreeCellChange)
+        self._on_refresh = False
         return True
 
     def registerTreeCellChange(self, item):
@@ -435,10 +437,14 @@ class MainWidget(QWidget):
                 item_data.setCategory(category_index)
                 item.setForeground(QColor("#FF0000"))
             else:
-                if bool(item.checkState()):
+                if self._on_refresh:
+                    item.setCheckState(2)
                     item_data.setVisible()
                 else:
-                    item_data.setInvisible()
+                    if bool(item.checkState()):
+                        item_data.setVisible()
+                    else:
+                        item_data.setInvisible()
                 self.label_img.pixmap = self.label_img.drawSamplesBox()
                 self.label_img.update()
         self._on_register_tree_cell = False

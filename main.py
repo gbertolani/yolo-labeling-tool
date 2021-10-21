@@ -124,6 +124,7 @@ class SampleObject(object):
         self._new_idx = None
         self._new = False
         self._changed = False
+        self._deleted = False
 
     def _truncate(self, number):
         """
@@ -148,6 +149,13 @@ class SampleObject(object):
 
     def withChanges(self):
         return self._changed
+
+    def setDeleted(self, deleted=True):
+        self._deleted = deleted
+        return True
+
+    def isDeleted(self):
+        return self._deleted
 
     def setInvisible(self):
         self._visible = False
@@ -436,6 +444,11 @@ class MainWidget(QWidget):
                     return
                 item_data.setCategory(category_index)
                 item.setForeground(QColor("#FF0000"))
+            if item.column() == 3:
+                if bool(item.checkState()):
+                    item_data.setDeleted()
+                else:
+                    item_data.setDeleted(deleted=False)
             else:
                 if self._on_refresh:
                     item.setCheckState(2)
@@ -561,6 +574,8 @@ class MainWidget(QWidget):
             for group_idx in groups_keys:
                 samples = groups[group_idx]
                 for sample in samples:
+                    if sample.isDeleted():
+                        continue
                     writer = csv.writer(file, delimiter=' ', dialect='skip_space')
                     writer.writerow(sample.getYoloFormat())
         return True

@@ -42,7 +42,7 @@ class GroupModel(QtGui.QStandardItemModel):
     def __init__(self, parent=None):
         super(GroupModel, self).__init__(parent)
         self.setColumnCount(3)
-        self.setHorizontalHeaderLabels(["", "Name", "New Category"])
+        self.setHorizontalHeaderLabels(["", "Name", "New Category", "Delete"])
         for i in range(self.columnCount()):
             self.horizontalHeaderItem(i)
 
@@ -85,3 +85,8 @@ class GroupModel(QtGui.QStandardItemModel):
         item_icon.setIcon(QtGui.QIcon("./resources/icons/category2.png"))
         item_icon.setData(sample)
         group_item.setChild(j, 2, item_icon)
+        item_rm = QtGui.QStandardItem()
+        item_rm.setEditable(True)
+        item_rm.setData(sample)
+        item_rm.setCheckable(True)
+        group_item.setChild(j, 3, item_rm)

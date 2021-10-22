@@ -286,7 +286,7 @@ class ImageWidget(QWidget):
                 # Draw text
                 painter.setPen(QPen(Qt.blue, 2, Qt.SolidLine))
                 painter.drawText(sample.lx, sample.ly+15,
-                                 sample.category_name)
+                                 str(sample.line_number))
         return res
 
     def setPixmap(self, image_fn):

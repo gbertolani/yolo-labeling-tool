@@ -45,6 +45,7 @@ class GroupModel(QtGui.QStandardItemModel):
         self.setHorizontalHeaderLabels(["", "Name", "New Category", "Delete"])
         for i in range(self.columnCount()):
             self.horizontalHeaderItem(i)
+        self.category_icon = QtGui.QIcon("./resources/icons/category2.png")
 
     def add_group(self, idx, group_name):
         item_root = QtGui.QStandardItem()
@@ -82,7 +83,7 @@ class GroupModel(QtGui.QStandardItemModel):
         item.setCheckState(QtCore.Qt.CheckState(checked_state))
         item_icon = QtGui.QStandardItem()
         item_icon.setEditable(True)
-        item_icon.setIcon(QtGui.QIcon("./resources/icons/category2.png"))
+        item_icon.setIcon(self.category_icon)
         item_icon.setData(sample)
         group_item.setChild(j, 2, item_icon)
         item_rm = QtGui.QStandardItem()

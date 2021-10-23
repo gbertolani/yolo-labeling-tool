@@ -458,8 +458,8 @@ class MainWidget(QWidget):
                         item_data.setVisible()
                     else:
                         item_data.setInvisible()
-                self.label_img.pixmap = self.label_img.drawSamplesBox()
-                self.label_img.update()
+                    self.label_img.pixmap = self.label_img.drawSamplesBox()
+                    self.label_img.update()
         self._on_register_tree_cell = False
         return True
 

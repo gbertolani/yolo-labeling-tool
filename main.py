@@ -6,7 +6,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QPushButton
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QFileDialog, QLabel
 from PyQt5.QtWidgets import QDesktopWidget, QMessageBox
-from PyQt5.QtGui import QPixmap, QPainter, QPen, QFont, QColor
+from PyQt5.QtGui import QPixmap, QPainter, QPen, QFont, QColor, QIcon
 from PyQt5.QtCore import QPoint
 from sample_view import GroupModel, GroupView
 import csv
@@ -18,6 +18,7 @@ class MyApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.setWindowIcon(QIcon('icon.png'))
         self.initUI()
 
     def initUI(self):

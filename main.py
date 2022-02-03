@@ -6,15 +6,17 @@ import os
 import re
 import sys
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QPushButton
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QFileDialog, QLabel
-from PyQt5.QtWidgets import QMessageBox
-from PyQt5.QtGui import QColor, QIcon
+from PyQt5.QtWidgets import QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsRectItem,QGraphicsItem
+from PyQt5.QtGui import QColor, QIcon, QPen, QPixmap
 
 
 from libs.samples import SampleObject
 from views.sample_view import GroupModel, GroupView
 from widgets.image_widget import ImageWidget
+from widgets.scene_widget import GraphicsScene, GraphicsRectItem
 
 
 class MyApp(QMainWindow):
@@ -168,7 +170,7 @@ class MainWidget(QWidget):
         imagePathLabel = QLabel('Image Path not selected', self)
         objNamesPathLabel = QLabel('obj.names Path not selected', self)
 
-        self.label_img = ImageWidget(self.parent)
+        # self.label_img = ImageWidget(self.parent)
         self.image_index = -1
 
         # Events
@@ -209,7 +211,42 @@ class MainWidget(QWidget):
 
         vbox = QVBoxLayout()
         hbox_1 = QHBoxLayout()
-        hbox_1.addWidget(self.label_img, 7)
+        # hbox_1.addWidget(self.label_img, 7)
+
+        self.grview = QGraphicsView()
+        scene = GraphicsScene()
+        # scene.setSceneRect(0, 0, 400, 300)
+        # scene.addPixmap(QPixmap('./resources/background/start.png'))
+        self._bg = QPixmap.scaled(
+            QPixmap('./resources/background/start.png'),
+            640, 480,
+            transformMode=Qt.SmoothTransformation
+        )
+        scene.addPixmap(self._bg)
+        self._bg.scaled
+        self.zoom = 0
+        self.grview.setScene(scene)
+        # self.grview.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.grview.setAlignment(Qt.AlignCenter)
+
+        item = GraphicsRectItem(640, 480, 40, 40,)
+        item2 = QGraphicsRectItem(0, 0, 640, 480,)
+
+        pen = QPen(Qt.magenta)
+        pen2 = QPen(Qt.blue)
+        pen.setWidth(8)
+        pen2.setWidth(2)
+        item.setPen(pen)
+        item2.setPen(pen2)
+
+
+        # item.setFlag(QGraphicsItem.ItemIsMovable)
+        scene.addItem(item2)
+        scene.addItem(item)
+        self.grview.fitInView(scene.sceneRect(), Qt.KeepAspectRatio)
+
+        hbox_1.addWidget(self.grview, 7)
+
         self.group_model = GroupModel(self)
         self.tree_view = GroupView(self.group_model)
         hbox_1.addWidget(self.tree_view, 3)
@@ -217,6 +254,16 @@ class MainWidget(QWidget):
         vbox.addLayout(hbox)
 
         self.setLayout(vbox)
+
+    def wheelEvent(self, event):
+        scale_factor = 1.15
+        print(event.angleDelta())
+        self.zoom += event.angleDelta().y()/ (2 * abs(event.angleDelta().y()))
+        if event.angleDelta().y() > 0:
+            a = self.grview.scale(scale_factor, scale_factor)
+        else:
+            a = self.grview.scale(1 / scale_factor, 1/ scale_factor)
+        print(a)
 
     def setNextImage(self, go_back=False):
         if go_back:

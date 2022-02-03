@@ -4,7 +4,7 @@ import csv
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QWidget
-from PyQt5.QtWidgets import QDesktopWidget, QMessageBox
+from PyQt5.QtWidgets import QDesktopWidget, QMessageBox, QSizePolicy
 from PyQt5.QtWidgets import QHBoxLayout, QLabel
 from PyQt5.QtGui import QPixmap, QPainter, QPen, QFont, QColor
 from PyQt5.QtCore import QPoint
@@ -20,6 +20,7 @@ class ImageWidget(QWidget):
         self.setMouseTracking(True)
         self.screen_height = QDesktopWidget().screenGeometry().height()
         self.last_idx = 0
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.initUI()
 

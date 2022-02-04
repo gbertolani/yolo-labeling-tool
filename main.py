@@ -213,37 +213,31 @@ class MainWidget(QWidget):
         hbox_1 = QHBoxLayout()
         # hbox_1.addWidget(self.label_img, 7)
 
-        self.grview = QGraphicsView()
-        scene = GraphicsScene()
-        # scene.setSceneRect(0, 0, 400, 300)
-        # scene.addPixmap(QPixmap('./resources/background/start.png'))
-        self._bg = QPixmap.scaled(
-            QPixmap('./resources/background/start.png'),
-            640, 480,
-            transformMode=Qt.SmoothTransformation
-        )
-        scene.addPixmap(self._bg)
-        self._bg.scaled
         self.zoom = 0
-        self.grview.setScene(scene)
-        # self.grview.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.grview = QGraphicsView()
+        self.label_img = GraphicsScene(parent=self.parent)
+        self.grview.setScene(self.label_img)
         self.grview.setAlignment(Qt.AlignCenter)
-
-        item = GraphicsRectItem(640, 480, 40, 40,)
-        item2 = QGraphicsRectItem(0, 0, 640, 480,)
-
-        pen = QPen(Qt.magenta)
-        pen2 = QPen(Qt.blue)
-        pen.setWidth(8)
-        pen2.setWidth(2)
-        item.setPen(pen)
-        item2.setPen(pen2)
+        self.grview.fitInView(self.label_img.sceneRect())
+        self.grview.setBackgroundBrush(Qt.black)
 
 
-        # item.setFlag(QGraphicsItem.ItemIsMovable)
-        scene.addItem(item2)
-        scene.addItem(item)
-        self.grview.fitInView(scene.sceneRect(), Qt.KeepAspectRatio)
+        # scene = GraphicsScene()
+        # self.zoom = 0
+        # self.grview.setScene(scene)
+        # # self.grview.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        # self.grview.setAlignment(Qt.AlignCenter)
+        #
+        # item = GraphicsRectItem(640, 480, 40, 40,)
+        #
+        # pen = QPen(Qt.magenta)
+        # pen.setWidth(8)
+        # item.setPen(pen)
+        #
+        #
+        # # item.setFlag(QGraphicsItem.ItemIsMovable)
+        # scene.addItem(item)
+        # self.grview.fitInView(scene.sceneRect(), Qt.KeepAspectRatio)
 
         hbox_1.addWidget(self.grview, 7)
 
